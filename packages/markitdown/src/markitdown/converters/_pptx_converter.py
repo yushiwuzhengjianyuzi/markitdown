@@ -113,7 +113,7 @@ class PptxConverter(DocumentConverter):
                         md_content += text + "\n"
 
                 # Group Shapes
-                if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.GROUP:
+                if self._get_shape_type(shape) == pptx.enum.shapes.MSO_SHAPE_TYPE.GROUP:
                     sorted_shapes = sorted(
                         shape.shapes,
                         key=lambda x: (
@@ -280,10 +280,20 @@ class PptxConverter(DocumentConverter):
 
         return None, None, None
 
+    def _get_shape_type(self, shape):
+        """Return the shape type, or None when python-pptx cannot classify it."""
+        try:
+            return shape.shape_type
+        except (NotImplementedError, ValueError):
+            # python-pptx raises these for shapes it can parse but does not
+            # recognize. One such shape should not abort the presentation.
+            return None
+
     def _is_picture(self, shape):
-        if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.PICTURE:
+        shape_type = self._get_shape_type(shape)
+        if shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.PICTURE:
             return True
-        if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.PLACEHOLDER:
+        if shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.PLACEHOLDER:
             # ``shape.image`` can raise (e.g. ValueError "no embedded image")
             # for SVG placeholders without a raster fallback, so guard against
             # any exception rather than relying on hasattr (which only swallows
@@ -298,9 +308,7 @@ class PptxConverter(DocumentConverter):
         return False
 
     def _is_table(self, shape):
-        if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.TABLE:
-            return True
-        return False
+        return self._get_shape_type(shape) == pptx.enum.shapes.MSO_SHAPE_TYPE.TABLE
 
     def _convert_table_to_markdown(self, table, **kwargs):
         # Write the table as HTML, then convert it to Markdown

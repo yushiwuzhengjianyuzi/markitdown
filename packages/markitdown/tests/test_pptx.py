@@ -15,7 +15,7 @@ from lxml import etree
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.enum.chart import XL_CHART_TYPE
-from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from pptx.util import Inches
 
 from markitdown import (
@@ -892,6 +892,53 @@ def test_pptx_chart_title_text_frame(title: str | None) -> None:
     stream.seek(0)
     markdown = converter.convert(stream, StreamInfo(extension=".pptx")).markdown
     assert result.strip() in markdown
+
+
+# Unrecognized shapes
+
+
+def _unrecognized_shape_presentation() -> io.BytesIO:
+    """Build a deck whose first shape python-pptx cannot classify."""
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unknown_shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(1),
+        Inches(1),
+        Inches(2),
+        Inches(1),
+    )
+    unknown_shape.text = "Text from an unrecognized shape"
+    slide.shapes.add_textbox(
+        Inches(1), Inches(3), Inches(3), Inches(1)
+    ).text = "Text after the unrecognized shape"
+
+    # Removing the geometry leaves a valid text-bearing shape that python-pptx
+    # parses but cannot classify; accessing shape_type raises NotImplementedError.
+    drawing_ns = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    for geometry in unknown_shape._element.findall(f".//{drawing_ns}prstGeom"):
+        geometry.getparent().remove(geometry)
+
+    stream = io.BytesIO()
+    presentation.save(stream)
+    stream.seek(0)
+    return stream
+
+
+def test_unrecognized_shape_type_does_not_abort_presentation() -> None:
+    stream = _unrecognized_shape_presentation()
+    reloaded = Presentation(stream)
+    with pytest.raises(NotImplementedError, match="unrecognized shape type"):
+        _ = reloaded.slides[0].shapes[0].shape_type
+
+    stream.seek(0)
+    result = MarkItDown().convert_stream(
+        stream,
+        stream_info=StreamInfo(extension=".pptx"),
+    )
+
+    assert "Text from an unrecognized shape" in result.markdown
+    assert "Text after the unrecognized shape" in result.markdown
 
 
 if __name__ == "__main__":
